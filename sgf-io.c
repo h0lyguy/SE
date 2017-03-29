@@ -87,31 +87,46 @@ int sgf_getc(OFILE* file)
  par "f".
  *********************************************************************/
 
-void sgf_append_block(OFILE* f)
-    {
+int sgf_append_block(OFILE* f)
+{
     TBLOCK b;
     int adr;
-
-    panic("%s: ligne %d: fonction non terminee", __FILE__, __LINE__);
+	
+	adr=alloc_block();
+	if(adr<0) return -1;
+	write_block(adr,&f->buffer);
+	set_fat(adr,FAT_EOF);
+	if(f->first==FAT_EOF){
+		f->first=adr;
+		f->last=adr;
     }
+    else {
+		set_fat(f->last,adr);
+		f->last=adr;
+	}
+	b.inode.length=f->ptr;
+	b.inode.first=f->first;
+	b.inode.last=f->last;
+	write_block(f->inode,&b.data);
+	return 0;
+}
+	
 
 
 /**********************************************************************
  Ecrire le caractère "c" dans le fichier ouvert décrit par "file".
  *********************************************************************/
 
-void sgf_putc(OFILE* file, char  c)			//FAUX, UTILISER APPEND BLOCK
+int sgf_putc(OFILE* file, char  c)
 {
-	int c;
 	assert (file->mode == WRITE_MODE);
-	if(file->ptr>=file->length){
-		return -1;
-	if((file->ptr % BLOCK_SIZE)==0){
-		write_block(file->ptr,file->buffer);
-	}
-	c=file->buffer[(file->ptr%BLOCK_SIZE)];
+	file->buffer[file->ptr%BLOCK_SIZE]=c;
 	file->ptr++;
-	return c;
+	if((file->ptr%BLOCK_SIZE)==0){
+		if(sgf_append_block(file)<0)
+			return -1;
+	}
+	return 0;	
 }
 
 
@@ -142,13 +157,37 @@ void sgf_puts(OFILE* file, char* s)
  ************************************************************/
 
 void sgf_remove(int  adr_inode)
-    {
-    TBLOCK b;
-    int adr, k;
-    
-    printf("%s: ligne %d: fonction non terminee", __FILE__, __LINE__);
-    }
+{
+	TBLOCK b;
+	int adr, k;
+	read_block(adr_inode,&b.data);
+	adr=b.inode.first;
+	while(adr!=FAT_EOF){
+		k=adr;
+		adr=get_fat(k);
+		set_fat(k,FAT_FREE);
+	}
+	set_fat(adr_inode,FAT_FREE);
+	
+	printf("Nombre de blocs libres : %d\n",nb_blocs_libres(adr_inode));
+}
 
+/************************************************************
+ Afficher le nombre de blocs libres
+ ************************************************************/
+
+int nb_blocs_libres(int  adr_inode)
+{
+	int i,cpt;
+	TBLOCK b;
+	read_block(adr_inode,&b.data);
+	for(i=0;i<get_disk_size();i++){
+		if(get_fat(i)==FAT_FREE){
+			cpt++;
+		}
+	}
+	return cpt;
+}
 
 /************************************************************
  Ouvrir un fichier en écriture seulement (NULL si échec).
@@ -243,10 +282,17 @@ OFILE* sgf_open (const char* nom, int mode)
  Fermer un fichier ouvert.
  ************************************************************/
 
-void sgf_close(OFILE* file)
-    {
-    printf("%s: ligne %d: fonction non terminee", __FILE__, __LINE__);
-    }
+int sgf_close(OFILE* file)
+{
+	if(file->mode==WRITE_MODE){
+		if((file->ptr%BLOCK_SIZE)!=0){
+			if(sgf_append_block(file)<0)
+				return -1;
+			}
+	}
+	free(file);
+	return 0;
+}
 
 
 /**********************************************************************
